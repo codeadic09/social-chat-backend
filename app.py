@@ -18,7 +18,8 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=30)
 
 CORS(app, resources={r"/*": {"origins": "*"}})
 jwt = JWTManager(app)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
 
 # Database connection pool
 db_config = {
