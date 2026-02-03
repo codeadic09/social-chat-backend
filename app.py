@@ -1,5 +1,4 @@
-import eventlet
-eventlet.monkey_patch()
+
 
 from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -619,8 +618,5 @@ def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()}), 200
 
 if __name__ == '__main__':
-    # Local development only
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
-else:
-    # Production (Render will use gunicorn)
-    pass
+    port = int(os.getenv('PORT', 5000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
