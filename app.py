@@ -612,6 +612,174 @@ def handle_typing(data):
             'is_typing': is_typing
         }, room=active_users[receiver_id])
 
+
+# ==================== DEBUG & UTILITY ENDPOINTS ====================
+
+@app.route('/api/friends', methods=['GET'])
+@jwt_required()
+def get_friends():
+    """Alias for /api/friends/list (for compatibility)"""
+    return get_friends_list()
+
+
+@app.route('/api/users/all', methods=['GET'])
+def get_all_users():
+    """Debug: Get all users (NO PASSWORDS!)"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, username, email, full_name, profile_picture, 
+                   is_online, last_seen, created_at 
+            FROM users 
+            ORDER BY created_at DESC
+        """)
+        users = cursor.fetchall()
+        cursor.close()
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "count": len(users),
+            "users": users
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/debug/user/<username>', methods=['GET'])
+def debug_check_user(username):
+    """Debug: Check if user exists and show details"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT id, username, email, full_name, profile_picture,
+                   is_online, last_seen, created_at 
+            FROM users 
+            WHERE username = %s
+        """, (username,))
+        user = cursor.fetchone()
+        cursor.close()
+        db.close()
+        
+        if user:
+            return jsonify({
+                "exists": True,
+                "user": user
+            }), 200
+        else:
+            return jsonify({
+                "exists": False,
+                "message": f"User '{username}' not found"
+            }), 404
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/debug/conversations', methods=['GET'])
+@jwt_required()
+def get_user_conversations():
+    """Debug: Get all conversations with last message"""
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get all friends with their last message
+        cursor.execute("""
+            SELECT 
+                u.id,
+                u.username,
+                u.full_name,
+                u.profile_picture,
+                u.is_online,
+                u.last_seen,
+                (SELECT message_text FROM messages 
+                 WHERE (sender_id = %s AND receiver_id = u.id) 
+                    OR (sender_id = u.id AND receiver_id = %s)
+                 ORDER BY created_at DESC LIMIT 1) as last_message,
+                (SELECT created_at FROM messages 
+                 WHERE (sender_id = %s AND receiver_id = u.id) 
+                    OR (sender_id = u.id AND receiver_id = %s)
+                 ORDER BY created_at DESC LIMIT 1) as last_message_time,
+                (SELECT COUNT(*) FROM messages 
+                 WHERE sender_id = u.id 
+                   AND receiver_id = %s 
+                   AND is_read = FALSE) as unread_count
+            FROM friendships f
+            JOIN users u ON f.friend_id = u.id
+            WHERE f.user_id = %s
+            ORDER BY last_message_time DESC NULLS LAST
+        """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id))
+        
+        conversations = cursor.fetchall()
+        cursor.close()
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "conversations": conversations
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route('/api/stats', methods=['GET'])
+@jwt_required()
+def get_user_stats():
+    """Get current user's stats"""
+    try:
+        current_user_id = int(get_jwt_identity())
+        
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Count friends
+        cursor.execute("SELECT COUNT(*) as count FROM friendships WHERE user_id = %s", (current_user_id,))
+        friends_count = cursor.fetchone()['count']
+        
+        # Count pending requests
+        cursor.execute("SELECT COUNT(*) as count FROM friend_requests WHERE receiver_id = %s AND status = 'pending'", (current_user_id,))
+        pending_requests = cursor.fetchone()['count']
+        
+        # Count unread messages
+        cursor.execute("SELECT COUNT(*) as count FROM messages WHERE receiver_id = %s AND is_read = FALSE", (current_user_id,))
+        unread_messages = cursor.fetchone()['count']
+        
+        cursor.close()
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "stats": {
+                "friends": friends_count,
+                "pending_requests": pending_requests,
+                "unread_messages": unread_messages,
+                "online_users": len(active_users)
+            }
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 # ==================== HEALTH CHECK ====================
 
 @app.route('/api/health', methods=['GET'])
